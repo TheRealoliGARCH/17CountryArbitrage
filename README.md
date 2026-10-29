@@ -60,6 +60,7 @@ These are design choices for this model, not universal descriptions of every exc
 - transaction progression through order submission, execution, clearing, and settlement;
 - guards against skipping transaction stages;
 - duplicate event-ID handling and an append-only in-memory audit log;
+- in-memory batch rollback if an unexpected exception interrupts processing;
 - an invariant check that transaction flags form a reachable prefix of the normal route.
 
 The ordering policy is explicit: a suspension affects events at or after its position in the event-time ordering. A later suspension does not retroactively block an earlier order. The processor rejects an event that sorts before the last accepted event for that instrument as **late**, rather than rewinding prior state. This simple watermark policy is a reference assumption; production event-time processing needs a documented lateness window, correction/replay policy, and durable event log.
@@ -96,7 +97,7 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 
 ## Scope and limitations
 
-The event processor does not connect to live market infrastructure, persist state across process restarts, implement a distributed consensus protocol, or prove all reachable-state properties. The audit log is in memory, so it is not a durable regulatory audit trail. Batch input validation prevents duplicate-ID and missing-ID errors before mutation, but event effects are not transactionally rolled back if an unexpected runtime exception occurs during processing. Do not infer production-grade atomicity or recovery guarantees from this scaffold.
+The event processor does not connect to live market infrastructure, persist state across process restarts, implement a distributed consensus protocol, or prove all reachable-state properties. The audit log is in memory, so it is not a durable regulatory audit trail. Batch input validation rejects duplicate IDs and missing identifiers before mutation. If an unexpected exception occurs during processing, the processor restores its pre-batch in-memory snapshot and re-raises the exception. This process-local rollback cannot protect against process termination, machine failure, external side effects, or concurrent writers; it is not durable or distributed transactionality.
 
 The subsystem adjacency table is an initial structural model. Every transition should have a documented event, guard, side effect, audit record, and failure path before use in a simulation or operational system.
 

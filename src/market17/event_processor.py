@@ -5,6 +5,7 @@ gateway. State and audit entries are in memory only.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, Iterable, List, Set, Tuple
@@ -99,24 +100,37 @@ class EventProcessor:
             raise ValueError("duplicate event_id within batch")
 
         ordered = sorted(batch, key=lambda e: (e.timestamp, e.sequence, e.event_id))
+        # Roll back every mutable field if an unexpected exception interrupts
+        # processing. This provides in-memory atomicity for the batch only.
+        snapshot = deepcopy((
+            self.instruments, self.transactions, self.processed_event_ids,
+            self.audit_log, self.last_event_order,
+        ))
         created: List[AuditEntry] = []
-        for event in ordered:
-            if event.event_id in self.processed_event_ids:
-                entry = self._entry(event, "ignored", "event ID already processed")
-            else:
-                key = (event.timestamp, event.sequence, event.event_id)
-                previous = self.last_event_order.get(event.instrument_id)
-                if previous is not None and key < previous:
-                    entry = self._entry(
-                        event, "rejected",
-                        "late event precedes the instrument's accepted event watermark",
-                    )
+        try:
+            for event in ordered:
+                if event.event_id in self.processed_event_ids:
+                    entry = self._entry(event, "ignored", "event ID already processed")
                 else:
-                    entry = self._apply(event)
-                    self.last_event_order[event.instrument_id] = key
-                self.processed_event_ids.add(event.event_id)
-            self.audit_log.append(entry)
-            created.append(entry)
+                    key = (event.timestamp, event.sequence, event.event_id)
+                    previous = self.last_event_order.get(event.instrument_id)
+                    if previous is not None and key < previous:
+                        entry = self._entry(
+                            event, "rejected",
+                            "late event precedes the instrument's accepted event watermark",
+                        )
+                    else:
+                        entry = self._apply(event)
+                        self.last_event_order[event.instrument_id] = key
+                    self.processed_event_ids.add(event.event_id)
+                self.audit_log.append(entry)
+                created.append(entry)
+        except Exception:
+            (
+                self.instruments, self.transactions, self.processed_event_ids,
+                self.audit_log, self.last_event_order,
+            ) = snapshot
+            raise
         return created
 
     def invariants_hold(self) -> bool:

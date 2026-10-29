@@ -102,6 +102,36 @@ class TestEventProcessor(unittest.TestCase):
         self.assertEqual(second.outcome, "ignored")
         self.assertEqual(len(processor.transactions), 1)
 
+    def test_unexpected_failure_rolls_back_entire_batch(self):
+        class FailingProcessor(EventProcessor):
+            def _apply(self, item):
+                if item.event_id == "explode":
+                    raise RuntimeError("injected processing failure")
+                return super()._apply(item)
+
+        processor = FailingProcessor()
+        with self.assertRaisesRegex(RuntimeError, "injected processing failure"):
+            processor.process_batch([
+                event("suspend-first", EventKind.SUSPEND, timestamp=1),
+                event("explode", EventKind.RESUME, timestamp=2),
+            ])
+        self.assertFalse(processor.instruments)
+        self.assertFalse(processor.transactions)
+        self.assertFalse(processor.processed_event_ids)
+        self.assertFalse(processor.audit_log)
+        self.assertFalse(processor.last_event_order)
+
+    def test_validation_failure_is_atomic(self):
+        processor = EventProcessor()
+        with self.assertRaises(ValueError):
+            processor.process_batch([
+                event("valid", EventKind.SUSPEND, timestamp=1),
+                event("", EventKind.RESUME, timestamp=2),
+            ])
+        self.assertFalse(processor.instruments)
+        self.assertFalse(processor.processed_event_ids)
+        self.assertFalse(processor.audit_log)
+
     def test_duplicate_ids_in_one_batch_rejected_before_processing(self):
         processor = EventProcessor()
         with self.assertRaises(ValueError):
