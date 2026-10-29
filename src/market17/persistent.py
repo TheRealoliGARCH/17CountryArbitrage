@@ -146,7 +146,7 @@ class PersistentEventProcessor:
         if self.path.exists() and self.path.stat().st_size:
             _, previous_digest = self._read_validated_batches()
             with self.path.open("rb") as stream:
-                record_index = sum(1 for _ in stream)
+                record_index = sum(1 for _ in stream) + 1
         else:
             previous_digest = "0" * 128
             record_index = 1
