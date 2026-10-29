@@ -69,7 +69,7 @@ A blocked or rejected event ID is consumed for idempotency. A retry after a stat
 
 ## Persistent event journal and recovery
 
-`src/market17/persistent.py` adds an optional local JSON Lines journal. New records use schema version 2 and contain a monotonically increasing record index and a SHA-256 digest over the canonical JSON representation of the record (excluding the digest field itself). Recovery verifies the digest and expected index before replay. Legacy version-1 records remain readable; subsequent appended records use version 2. The digest detects accidental or unsophisticated modification, but it is not an authenticity mechanism against an actor able to rewrite both payload and digest.
+`src/market17/persistent.py` adds an optional local JSON Lines journal. New records use schema version 2 and contain a monotonically increasing record index and a SHA-512 digest over the canonical JSON representation of the record (excluding the digest field itself). Recovery verifies the digest and expected index before replay. Legacy version-1 records remain readable; subsequent appended records use version 2. The digest detects accidental or unsophisticated modification, but it is not an authenticity mechanism against an actor able to rewrite both payload and digest.
 
 The wrapper writes each input batch, flushes it, and calls `fsync` before applying the batch to the in-memory processor. On an ordinary processing exception, it truncates the appended record and re-raises; the underlying processor's batch rollback restores in-memory state. On construction, it validates the complete journal before replaying into a private processor copy. If any record fails validation or replay, the supplied processor is left unchanged rather than partially recovered.
 
@@ -127,7 +127,7 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 
 ## Scope and limitations
 
-The event processor does not connect to live market infrastructure. The local journal provides replay when records remain intact and valid, but does not provide distributed consensus, concurrent-writer safety, replicated durability, or a regulatory-grade audit trail. The in-memory batch rollback cannot protect against process termination, machine failure, external side effects, or concurrent writers. Journal recovery re-executes the recorded event batches under the current implementation, so behavior changes across software versions require explicit compatibility and migration controls. SHA-256 record digests are corruption checks, not a substitute for a keyed signature, trusted checkpoint, or tamper-proof storage.
+The event processor does not connect to live market infrastructure. The local journal provides replay when records remain intact and valid, but does not provide distributed consensus, concurrent-writer safety, replicated durability, or a regulatory-grade audit trail. The in-memory batch rollback cannot protect against process termination, machine failure, external side effects, or concurrent writers. Journal recovery re-executes the recorded event batches under the current implementation, so behavior changes across software versions require explicit compatibility and migration controls. SHA-512 record digests are corruption checks, not a substitute for a keyed signature, trusted checkpoint, or tamper-proof storage.
 
 The subsystem adjacency table is an initial structural model. Every transition should have a documented event, guard, side effect, audit record, and failure path before use in a simulation or operational system.
 
