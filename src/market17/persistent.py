@@ -1,7 +1,7 @@
 """JSONL-backed event batches with deterministic, integrity-checked replay.
 
 This is a local research store, not a distributed or exchange-grade journal.
-New records include a SHA-256 digest and monotonically increasing record index.
+New records include a SHA-512 digest and monotonically increasing record index.
 Legacy version-1 records remain readable for backward compatibility.
 """
 from __future__ import annotations
@@ -65,8 +65,8 @@ class PersistentEventProcessor:
     @classmethod
     def _digest(cls, payload: dict) -> str:
         """Hash the complete v2 record except its digest field."""
-        unsigned = {key: value for key, value in payload.items() if key != "sha256"}
-        return hashlib.sha256(cls._canonical_bytes(unsigned)).hexdigest()
+        unsigned = {key: value for key, value in payload.items() if key != "sha512"}
+        return hashlib.sha512(cls._canonical_bytes(unsigned)).hexdigest()
 
     def _recover(self) -> None:
         """Validate the entire journal, then replay atomically into processor state."""
@@ -92,7 +92,7 @@ class PersistentEventProcessor:
                             raise ValueError("unexpected record index")
                         if not isinstance(payload.get("events"), list):
                             raise ValueError("missing events list")
-                        digest = payload.get("sha256")
+                        digest = payload.get("sha512")
                         if not isinstance(digest, str) or digest != self._digest(payload):
                             raise ValueError("journal digest mismatch")
                     else:
@@ -134,7 +134,7 @@ class PersistentEventProcessor:
             "record_index": record_index,
             "events": [self._event_to_dict(event) for event in batch],
         }
-        payload["sha256"] = self._digest(payload)
+        payload["sha512"] = self._digest(payload)
         encoded = self._canonical_bytes(payload) + b"\n"
         with self.path.open("a+b") as stream:
             stream.seek(0, os.SEEK_END)
