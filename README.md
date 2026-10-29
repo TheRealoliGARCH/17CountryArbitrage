@@ -67,6 +67,29 @@ The ordering policy is explicit: a suspension affects events at or after its pos
 
 A blocked or rejected event ID is consumed for idempotency. A retry after a state change must use a new event ID. This prevents a repeated delivery from changing the outcome of an already processed event silently.
 
+## Persistent event journal and recovery
+
+`src/market17/persistent.py` adds an optional local JSON Lines journal. `PersistentEventProcessor` writes each input batch as a versioned record, flushes it to disk, and calls `fsync` before applying the batch to the in-memory processor. On an ordinary processing exception, it truncates the appended record and re-raises; the underlying processor's batch rollback restores in-memory state. On construction, it replays journal batches in their original batch sequence, while each batch retains the event processor's canonical event-time ordering.
+
+Example:
+
+```python
+from market17.event_processor import Event, EventKind
+from market17.persistent import PersistentEventProcessor
+
+market = PersistentEventProcessor("data/market-events.jsonl")
+market.process_batch([
+    Event("submit-1", 1, 1, "ABC", EventKind.SUBMIT_ORDER, "tx-1"),
+    Event("execute-1", 2, 1, "ABC", EventKind.EXECUTION_CONFIRMED, "tx-1"),
+])
+
+# Reopening the same journal reconstructs state by replay:
+recovered = PersistentEventProcessor("data/market-events.jsonl")
+assert recovered.processor.invariants_hold()
+```
+
+Journal recovery fails closed on malformed or unsupported records instead of silently skipping them. The journal is local, append-only JSONL; it has no inter-process locking, log rotation, checksums, replicated storage, schema migration framework, or protection against every possible crash/filesystem failure. The wrapper assumes a fresh processor when replaying an existing journal. Do not share one journal between concurrent writers. This is a recovery scaffold, not a durable distributed transaction protocol.
+
 ## Safety and reachability checks
 
 The transaction flags are constrained by:
@@ -74,15 +97,18 @@ The transaction flags are constrained by:
 - clearing implies execution;
 - settlement implies clearing.
 
-The exhaustive unit test enumerates all (2^4=16) Boolean combinations and verifies that exactly five are reachable prefixes of the normal route: no stage completed, order submitted, executed, cleared, or settled. This is a finite invariant check over the four transaction flags, not a proof of all reachable states of the complete market model.
+The exhaustive unit test enumerates all `2**4 = 16` Boolean combinations and verifies that exactly five are reachable prefixes of the normal route: no stage completed, order submitted, executed, cleared, or settled. This is a finite invariant check over the four transaction flags, not a proof of all reachable states of the complete market model.
 
 ## Repository layout
 
 ```text
 src/market17/model.py             State, transition, and guard definitions
 src/market17/event_processor.py   Deterministic in-memory event processor
+src/market17/persistent.py        Local JSONL journal and deterministic replay
 tests/test_model.py               Architecture and core safety guard tests
-tests/test_event_processor.py     Ordering, recovery, and reachability tests\ntests/test_state_explorer.py      Bounded explorer and guard tests
+tests/test_event_processor.py     Ordering, recovery, and reachability tests
+tests/test_persistent.py          Persistence, replay, and failure-path tests
+tests/test_state_explorer.py      Bounded explorer and guard tests
 ```
 
 ## Run tests
@@ -97,7 +123,7 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 
 ## Scope and limitations
 
-The event processor does not connect to live market infrastructure, persist state across process restarts, implement a distributed consensus protocol, or prove all reachable-state properties. The audit log is in memory, so it is not a durable regulatory audit trail. Batch input validation rejects duplicate IDs and missing identifiers before mutation. If an unexpected exception occurs during processing, the processor restores its pre-batch in-memory snapshot and re-raises the exception. This process-local rollback cannot protect against process termination, machine failure, external side effects, or concurrent writers; it is not durable or distributed transactionality.
+The event processor does not connect to live market infrastructure. The local journal provides replay after ordinary process restarts when its records remain intact, but does not provide distributed consensus, concurrent-writer safety, replicated durability, or a regulatory-grade audit trail. The in-memory batch rollback cannot protect against process termination, machine failure, external side effects, or concurrent writers. Journal recovery re-executes the recorded event batches under the current implementation, so behavior changes across software versions require explicit compatibility and migration controls.
 
 The subsystem adjacency table is an initial structural model. Every transition should have a documented event, guard, side effect, audit record, and failure path before use in a simulation or operational system.
 
