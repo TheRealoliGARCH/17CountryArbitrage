@@ -1,12 +1,13 @@
-"""JSONL-backed event batches with deterministic replay.
+"""JSONL-backed event batches with deterministic, integrity-checked replay.
 
 This is a local research store, not a distributed or exchange-grade journal.
-Each batch is written and fsynced before it is applied in memory. On ordinary
-processing exceptions, the appended record is truncated and the processor's
-batch rollback restores its prior state.
+New records include a SHA-512 digest and monotonically increasing record index.
+Legacy version-1 records remain readable for backward compatibility.
 """
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -44,6 +45,8 @@ class PersistentEventProcessor:
 
     @staticmethod
     def _dict_to_event(record: dict) -> Event:
+        if not isinstance(record, dict):
+            raise ValueError("event must be an object")
         return Event(
             event_id=record["event_id"],
             timestamp=int(record["timestamp"]),
@@ -53,38 +56,86 @@ class PersistentEventProcessor:
             transaction_id=record.get("transaction_id", ""),
         )
 
+    @staticmethod
+    def _canonical_bytes(payload: dict) -> bytes:
+        return json.dumps(
+            payload, separators=(",", ":"), sort_keys=True, ensure_ascii=False
+        ).encode("utf-8")
+
+    @classmethod
+    def _digest(cls, payload: dict) -> str:
+        """Hash the complete v2 record except its digest field."""
+        unsigned = {key: value for key, value in payload.items() if key != "sha512"}
+        return hashlib.sha512(cls._canonical_bytes(unsigned)).hexdigest()
+
     def _recover(self) -> None:
-        """Replay every complete batch; malformed records fail closed."""
+        """Validate the entire journal, then replay atomically into processor state."""
+        parsed_batches = []
+        expected_index = 1
         with self.path.open("rb") as stream:
             for line_number, raw_line in enumerate(stream, start=1):
-                if not raw_line.strip():
-                    continue
+                # Blank lines are not valid records; do not silently hide corruption.
+                if not raw_line.endswith(b"\n"):
+                    raise ValueError(
+                        f"incomplete event journal record on line {line_number}"
+                    )
                 try:
                     payload = json.loads(raw_line)
-                    if payload.get("version") != 1 or not isinstance(payload.get("events"), list):
-                        raise ValueError("unsupported record version or missing events list")
+                    if not isinstance(payload, dict):
+                        raise ValueError("record must be an object")
+                    version = payload.get("version")
+                    if version == 1:
+                        if not isinstance(payload.get("events"), list):
+                            raise ValueError("missing events list")
+                    elif version == 2:
+                        if payload.get("record_index") != expected_index:
+                            raise ValueError("unexpected record index")
+                        if not isinstance(payload.get("events"), list):
+                            raise ValueError("missing events list")
+                        digest = payload.get("sha512")
+                        if not isinstance(digest, str) or digest != self._digest(payload):
+                            raise ValueError("journal digest mismatch")
+                    else:
+                        raise ValueError("unsupported record version")
                     events = [self._dict_to_event(item) for item in payload["events"]]
                 except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
                     raise ValueError(
-                        f"invalid event journal record on line {line_number}"
+                        f"invalid event journal record on line {line_number}: {exc}"
                     ) from exc
-                self.processor.process_batch(events)
+                parsed_batches.append(events)
+                expected_index += 1
+
+        # Replay against a private copy. A bad later batch must not leave the
+        # caller-supplied processor partially recovered.
+        staged_processor = copy.deepcopy(self.processor)
+        for events in parsed_batches:
+            staged_processor.process_batch(events)
+        self.processor.__dict__.clear()
+        self.processor.__dict__.update(staged_processor.__dict__)
 
     def process_batch(self, events: Iterable[Event]):
-        """Durably append one batch, then apply it; undo the append on exceptions."""
+        """Append a checksummed record, then apply it; undo append on exceptions."""
         batch = list(events)
-        # Let the processor perform its canonical validation before touching disk.
         if any(not event.event_id or not event.instrument_id for event in batch):
             raise ValueError("event_id and instrument_id must be non-empty")
         ids = [event.event_id for event in batch]
         if len(ids) != len(set(ids)):
             raise ValueError("duplicate event_id within batch")
 
+        # The next index is based on existing complete records, including legacy v1.
+        record_index = 1
+        if self.path.exists():
+            with self.path.open("rb") as stream:
+                for raw_line in stream:
+                    if raw_line.strip():
+                        record_index += 1
         payload = {
-            "version": 1,
+            "version": 2,
+            "record_index": record_index,
             "events": [self._event_to_dict(event) for event in batch],
         }
-        encoded = (json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n").encode("utf-8")
+        payload["sha512"] = self._digest(payload)
+        encoded = self._canonical_bytes(payload) + b"\n"
         with self.path.open("a+b") as stream:
             stream.seek(0, os.SEEK_END)
             start = stream.tell()
