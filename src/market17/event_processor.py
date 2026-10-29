@@ -1,8 +1,7 @@
 """Deterministic, in-memory event processor for the 17-State Market.
 
-This is a research reference implementation. It is not connected to an exchange
-or payment/settlement infrastructure. Events are processed atomically in memory
-and an append-only audit list is retained for the lifetime of the processor.
+This is a research reference implementation, not an exchange or settlement
+gateway. Events are processed atomically in memory and audited in append order.
 """
 from __future__ import annotations
 
@@ -18,18 +17,6 @@ class EventKind(str, Enum):
     EXECUTION_CONFIRMED = "execution_confirmed"
     CLEARING_CONFIRMED = "clearing_confirmed"
     SETTLEMENT_CONFIRMED = "settlement_confirmed"
-
-
-# Lower number is higher priority. Suspension/resumption controls are handled
-# before ordinary orders in the same batch, regardless of their input order.
-PRIORITY: Dict[EventKind, int] = {
-    EventKind.SUSPEND: 0,
-    EventKind.RESUME: 0,
-    EventKind.EXECUTION_CONFIRMED: 1,
-    EventKind.CLEARING_CONFIRMED: 1,
-    EventKind.SETTLEMENT_CONFIRMED: 1,
-    EventKind.SUBMIT_ORDER: 2,
-}
 
 
 @dataclass(frozen=True)
@@ -68,7 +55,7 @@ class AuditEntry:
 
 @dataclass
 class EventProcessor:
-    """Apply events in deterministic order and enforce core safety guards."""
+    """Apply events deterministically and enforce core safety guards."""
 
     instruments: Dict[str, InstrumentState] = field(default_factory=dict)
     transactions: Dict[Tuple[str, str], TransactionState] = field(default_factory=dict)
@@ -81,11 +68,11 @@ class EventProcessor:
         return self.instruments.setdefault(instrument_id, InstrumentState())
 
     def process_batch(self, events: Iterable[Event]) -> List[AuditEntry]:
-        """Process one batch by priority, timestamp, sequence, and event ID.
+        """Validate a batch, prioritize controls, and process deterministically.
 
-        The method validates the full batch before applying any event. Duplicate
-        IDs within the batch are rejected; IDs already processed are recorded
-        as duplicate no-ops. Batch ordering is deterministic for equal inputs.
+        Suspension/resumption controls are applied before other events in the
+        same batch. Other events preserve timestamp/sequence ordering. Duplicate
+        IDs in a batch fail before any mutation; previously seen IDs are no-ops.
         """
         batch = list(events)
         if any(not e.event_id or not e.instrument_id for e in batch):
@@ -97,7 +84,8 @@ class EventProcessor:
         ordered = sorted(
             batch,
             key=lambda e: (
-                PRIORITY[e.kind], e.timestamp, e.sequence, e.event_id
+                0 if e.kind in {EventKind.SUSPEND, EventKind.RESUME} else 1,
+                e.timestamp, e.sequence, e.event_id,
             ),
         )
         created: List[AuditEntry] = []
@@ -107,11 +95,9 @@ class EventProcessor:
                     event.event_id, event.instrument_id, event.transaction_id,
                     event.kind, "ignored", "event ID already processed",
                 )
-                self.audit_log.append(entry)
-                created.append(entry)
-                continue
-            entry = self._apply(event)
-            self.processed_event_ids.add(event.event_id)
+            else:
+                entry = self._apply(event)
+                self.processed_event_ids.add(event.event_id)
             self.audit_log.append(entry)
             created.append(entry)
         return created
@@ -123,7 +109,6 @@ class EventProcessor:
         if event.kind is EventKind.SUSPEND:
             instrument.suspended = True
             return self._entry(event, "applied", "instrument suspended")
-
         if event.kind is EventKind.RESUME:
             instrument.suspended = False
             return self._entry(event, "applied", "instrument resumed")
@@ -152,7 +137,6 @@ class EventProcessor:
                 return self._entry(event, "ignored", "execution already recorded")
             tx.executed = True
             return self._entry(event, "applied", "execution confirmed")
-
         if event.kind is EventKind.CLEARING_CONFIRMED:
             if not tx.executed:
                 return self._entry(event, "blocked", "execution not confirmed")
@@ -160,7 +144,6 @@ class EventProcessor:
                 return self._entry(event, "ignored", "clearing already recorded")
             tx.cleared = True
             return self._entry(event, "applied", "clearing confirmed")
-
         if event.kind is EventKind.SETTLEMENT_CONFIRMED:
             if not tx.cleared:
                 return self._entry(event, "blocked", "clearing not confirmed")
@@ -168,7 +151,6 @@ class EventProcessor:
                 return self._entry(event, "ignored", "settlement already recorded")
             tx.settled = True
             return self._entry(event, "applied", "settlement confirmed")
-
         return self._entry(event, "rejected", "unsupported event kind")
 
     @staticmethod
