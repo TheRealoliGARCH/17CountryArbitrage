@@ -51,16 +51,30 @@ The subsystems are logically concurrent. A real implementation must specify whic
 
 These are design choices for this model, not universal descriptions of every exchange's legal or operational rules. The governance rules must be parameterized for the jurisdiction and market under study.
 
+## Event processor
+
+`src/market17/event_processor.py` provides an in-memory event processor with:
+- deterministic batch ordering;
+- suspension/resumption controls processed before ordinary events in the same batch;
+- instrument-scoped suspension and listing checks;
+- transaction progression through order submission, execution, clearing, and settlement;
+- guards against skipping transaction stages;
+- duplicate event-ID handling and an append-only in-memory audit log.
+
+This processor is deliberately small and is not a complete exchange-grade concurrent system. The priority rule is a modeling assumption: suspension/resumption controls win within a batch, while other events retain timestamp/sequence order. Production systems require explicit policies for late events, durable idempotency, concurrency control, persistence, and recovery.
+
 ## Repository layout
 
 ```text
-src/market17/model.py  Reference state, transition, and guard definitions
-tests/test_model.py    Unit tests for architecture and core safety guards
+src/market17/model.py             State, transition, and guard definitions
+src/market17/event_processor.py   Deterministic in-memory event processor
+tests/test_model.py               Architecture and core safety guard tests
+tests/test_event_processor.py     Event ordering and transaction integrity tests
 ```
 
 ## Run tests
 
-Python 3.10 or later is recommended. The reference implementation uses only the Python standard library.
+Python 3.10 or later is recommended. The implementation uses only the Python standard library.
 
 From the repository root:
 
@@ -70,7 +84,7 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 
 ## Scope and limitations
 
-The current implementation is a first executable specification, not a complete concurrent event processor. It does not yet implement atomic event handling, event ordering, replay, persistence, a full reachable-state analysis, or live market integrations. Those should be added only after their semantics are specified and tested.
+The event processor does not connect to live market infrastructure, persist state across process restarts, implement a distributed consensus protocol, or prove all reachable-state properties. The audit log is in memory, so it is not a durable regulatory audit trail. Those capabilities must not be inferred from this reference implementation.
 
 The subsystem adjacency table is an initial structural model. Every transition should have a documented event, guard, side effect, audit record, and failure path before use in a simulation or operational system.
 
