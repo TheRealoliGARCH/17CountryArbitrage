@@ -52,7 +52,7 @@ class TestPersistentEventProcessor(unittest.TestCase):
             self.assertEqual([record["record_index"] for record in records], [1, 2])
             for record in records:
                 self.assertEqual(record["version"], 2)
-                self.assertEqual(record["sha256"], PersistentEventProcessor._digest(record))
+                self.assertEqual(record["sha512"], PersistentEventProcessor._digest(record))
             PersistentEventProcessor(journal)
 
     def test_digest_mismatch_fails_closed(self):
