@@ -1,7 +1,7 @@
 """Deterministic, in-memory event processor for the 17-State Market.
 
 This is a research reference implementation, not an exchange or settlement
-gateway. Events are processed atomically in memory and audited in append order.
+gateway. State and audit entries are in memory only.
 """
 from __future__ import annotations
 
@@ -42,6 +42,14 @@ class TransactionState:
     cleared: bool = False
     settled: bool = False
 
+    def is_reachable(self) -> bool:
+        """Whether the flags describe a prefix of the normal transaction route."""
+        return (
+            (not self.executed or self.order_submitted)
+            and (not self.cleared or self.executed)
+            and (not self.settled or self.cleared)
+        )
+
 
 @dataclass(frozen=True)
 class AuditEntry:
@@ -55,12 +63,21 @@ class AuditEntry:
 
 @dataclass
 class EventProcessor:
-    """Apply events deterministically and enforce core safety guards."""
+    """Apply timestamp-ordered events and enforce core safety invariants.
+
+    Events are ordered by (timestamp, sequence, event_id). The same ordering
+    applies to controls and ordinary events: a suspension only affects events
+    at or after its position in that order. Events older than an instrument's
+    last accepted ordering key are rejected as late; the processor never
+    silently rewinds state. A rejected/blocked event ID is consumed for
+    idempotency; a corrected retry must use a new event ID.
+    """
 
     instruments: Dict[str, InstrumentState] = field(default_factory=dict)
     transactions: Dict[Tuple[str, str], TransactionState] = field(default_factory=dict)
     processed_event_ids: Set[str] = field(default_factory=set)
     audit_log: List[AuditEntry] = field(default_factory=list)
+    last_event_order: Dict[str, Tuple[int, int, str]] = field(default_factory=dict)
 
     def _instrument(self, instrument_id: str) -> InstrumentState:
         if not instrument_id:
@@ -68,11 +85,11 @@ class EventProcessor:
         return self.instruments.setdefault(instrument_id, InstrumentState())
 
     def process_batch(self, events: Iterable[Event]) -> List[AuditEntry]:
-        """Validate a batch, prioritize controls, and process deterministically.
+        """Validate a batch and process it deterministically.
 
-        Suspension/resumption controls are applied before other events in the
-        same batch. Other events preserve timestamp/sequence ordering. Duplicate
-        IDs in a batch fail before any mutation; previously seen IDs are no-ops.
+        Duplicate IDs within a batch fail before mutation. Previously seen IDs
+        are no-ops. Valid events are globally sorted by event time, sequence,
+        and ID, with no special control-event priority.
         """
         batch = list(events)
         if any(not e.event_id or not e.instrument_id for e in batch):
@@ -81,26 +98,30 @@ class EventProcessor:
         if len(ids) != len(set(ids)):
             raise ValueError("duplicate event_id within batch")
 
-        ordered = sorted(
-            batch,
-            key=lambda e: (
-                0 if e.kind in {EventKind.SUSPEND, EventKind.RESUME} else 1,
-                e.timestamp, e.sequence, e.event_id,
-            ),
-        )
+        ordered = sorted(batch, key=lambda e: (e.timestamp, e.sequence, e.event_id))
         created: List[AuditEntry] = []
         for event in ordered:
             if event.event_id in self.processed_event_ids:
-                entry = AuditEntry(
-                    event.event_id, event.instrument_id, event.transaction_id,
-                    event.kind, "ignored", "event ID already processed",
-                )
+                entry = self._entry(event, "ignored", "event ID already processed")
             else:
-                entry = self._apply(event)
+                key = (event.timestamp, event.sequence, event.event_id)
+                previous = self.last_event_order.get(event.instrument_id)
+                if previous is not None and key < previous:
+                    entry = self._entry(
+                        event, "rejected",
+                        "late event precedes the instrument's accepted event watermark",
+                    )
+                else:
+                    entry = self._apply(event)
+                    self.last_event_order[event.instrument_id] = key
                 self.processed_event_ids.add(event.event_id)
             self.audit_log.append(entry)
             created.append(entry)
         return created
+
+    def invariants_hold(self) -> bool:
+        """Check transaction reachability and consistency of the event-ID ledger."""
+        return all(tx.is_reachable() for tx in self.transactions.values())
 
     def _apply(self, event: Event) -> AuditEntry:
         instrument = self._instrument(event.instrument_id)

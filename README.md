@@ -51,17 +51,29 @@ The subsystems are logically concurrent. A real implementation must specify whic
 
 These are design choices for this model, not universal descriptions of every exchange's legal or operational rules. The governance rules must be parameterized for the jurisdiction and market under study.
 
-## Event processor
+## Event processor and event-time policy
 
 `src/market17/event_processor.py` provides an in-memory event processor with:
-- deterministic batch ordering;
-- suspension/resumption controls processed before ordinary events in the same batch;
+- deterministic ordering by `(timestamp, sequence, event_id)`;
+- the same event-time ordering for suspension/resumption controls and ordinary events;
 - instrument-scoped suspension and listing checks;
 - transaction progression through order submission, execution, clearing, and settlement;
 - guards against skipping transaction stages;
-- duplicate event-ID handling and an append-only in-memory audit log.
+- duplicate event-ID handling and an append-only in-memory audit log;
+- an invariant check that transaction flags form a reachable prefix of the normal route.
 
-This processor is deliberately small and is not a complete exchange-grade concurrent system. The priority rule is a modeling assumption: suspension/resumption controls win within a batch, while other events retain timestamp/sequence order. Production systems require explicit policies for late events, durable idempotency, concurrency control, persistence, and recovery.
+The ordering policy is explicit: a suspension affects events at or after its position in the event-time ordering. A later suspension does not retroactively block an earlier order. The processor rejects an event that sorts before the last accepted event for that instrument as **late**, rather than rewinding prior state. This simple watermark policy is a reference assumption; production event-time processing needs a documented lateness window, correction/replay policy, and durable event log.
+
+A blocked or rejected event ID is consumed for idempotency. A retry after a state change must use a new event ID. This prevents a repeated delivery from changing the outcome of an already processed event silently.
+
+## Safety and reachability checks
+
+The transaction flags are constrained by:
+- execution implies order submission;
+- clearing implies execution;
+- settlement implies clearing.
+
+The exhaustive unit test enumerates all (2^4=16) Boolean combinations and verifies that exactly five are reachable prefixes of the normal route: no stage completed, order submitted, executed, cleared, or settled. This is a finite invariant check over the four transaction flags, not a proof of all reachable states of the complete market model.
 
 ## Repository layout
 
@@ -69,7 +81,7 @@ This processor is deliberately small and is not a complete exchange-grade concur
 src/market17/model.py             State, transition, and guard definitions
 src/market17/event_processor.py   Deterministic in-memory event processor
 tests/test_model.py               Architecture and core safety guard tests
-tests/test_event_processor.py     Event ordering and transaction integrity tests
+tests/test_event_processor.py     Ordering, recovery, and reachability tests
 ```
 
 ## Run tests
@@ -84,7 +96,7 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 
 ## Scope and limitations
 
-The event processor does not connect to live market infrastructure, persist state across process restarts, implement a distributed consensus protocol, or prove all reachable-state properties. The audit log is in memory, so it is not a durable regulatory audit trail. Those capabilities must not be inferred from this reference implementation.
+The event processor does not connect to live market infrastructure, persist state across process restarts, implement a distributed consensus protocol, or prove all reachable-state properties. The audit log is in memory, so it is not a durable regulatory audit trail. Batch input validation prevents duplicate-ID and missing-ID errors before mutation, but event effects are not transactionally rolled back if an unexpected runtime exception occurs during processing. Do not infer production-grade atomicity or recovery guarantees from this scaffold.
 
 The subsystem adjacency table is an initial structural model. Every transition should have a documented event, guard, side effect, audit record, and failure path before use in a simulation or operational system.
 
