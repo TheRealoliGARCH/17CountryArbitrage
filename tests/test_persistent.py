@@ -42,7 +42,7 @@ class TestPersistentEventProcessor(unittest.TestCase):
             )
             self.assertEqual(recovered.processor.last_event_order["ABC"], (4, 1, "settle"))
 
-    def test_new_records_have_valid_digest_and_monotonic_indices(self):
+    def test_new_records_have_valid_digest_indices_and_chain(self):
         with tempfile.TemporaryDirectory() as directory:
             journal = Path(directory) / "events.jsonl"
             persistent = PersistentEventProcessor(journal)
@@ -50,9 +50,12 @@ class TestPersistentEventProcessor(unittest.TestCase):
             persistent.process_batch([event("two", EventKind.RESUME, timestamp=2)])
             records = [json.loads(line) for line in journal.read_text().splitlines()]
             self.assertEqual([record["record_index"] for record in records], [1, 2])
+            previous = "0" * 128
             for record in records:
-                self.assertEqual(record["version"], 2)
+                self.assertEqual(record["version"], 3)
+                self.assertEqual(record["previous_sha512"], previous)
                 self.assertEqual(record["sha512"], PersistentEventProcessor._digest(record))
+                previous = record["sha512"]
             PersistentEventProcessor(journal)
 
     def test_digest_mismatch_fails_closed(self):
@@ -63,6 +66,33 @@ class TestPersistentEventProcessor(unittest.TestCase):
             record["events"][0]["event_id"] = "tampered"
             journal.write_text(json.dumps(record) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "line 1.*digest mismatch"):
+                PersistentEventProcessor(journal)
+
+    def test_chain_mismatch_detects_middle_record_removal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal = Path(directory) / "events.jsonl"
+            first = PersistentEventProcessor(journal)
+            first.process_batch([event("one", EventKind.SUSPEND, timestamp=1)])
+            first.process_batch([event("two", EventKind.RESUME, timestamp=2)])
+            first.process_batch([event("three", EventKind.SUSPEND, timestamp=3)])
+            lines = journal.read_text(encoding="utf-8").splitlines()
+            journal.write_text(lines[0] + "\n" + lines[2] + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "line 2.*unexpected record index|line 2.*chain mismatch"):
+                PersistentEventProcessor(journal)
+
+    def test_chain_mismatch_detects_predecessor_replacement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal = Path(directory) / "events.jsonl"
+            first = PersistentEventProcessor(journal)
+            first.process_batch([event("one", EventKind.SUSPEND, timestamp=1)])
+            first.process_batch([event("two", EventKind.RESUME, timestamp=2)])
+            lines = journal.read_text(encoding="utf-8").splitlines()
+            first_record = json.loads(lines[0])
+            first_record["events"][0]["event_id"] = "changed"
+            first_record["sha512"] = PersistentEventProcessor._digest(first_record)
+            lines[0] = json.dumps(first_record, separators=(",", ":"), sort_keys=True)
+            journal.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "line 2.*chain mismatch"):
                 PersistentEventProcessor(journal)
 
     def test_corrupt_middle_record_fails_without_partial_recovery(self):
@@ -90,11 +120,11 @@ class TestPersistentEventProcessor(unittest.TestCase):
             journal = Path(directory) / "events.jsonl"
             PersistentEventProcessor(journal).process_batch([event("one", EventKind.SUSPEND)])
             with journal.open("ab") as stream:
-                stream.write(b'{"version":2,"events":')
+                stream.write(b'{"version":3,"events":')
             with self.assertRaisesRegex(ValueError, "incomplete.*line 2"):
                 PersistentEventProcessor(journal)
 
-    def test_legacy_v1_records_remain_readable(self):
+    def test_legacy_v1_records_remain_readable_and_chain_continues(self):
         with tempfile.TemporaryDirectory() as directory:
             journal = Path(directory) / "events.jsonl"
             legacy = {
@@ -113,8 +143,9 @@ class TestPersistentEventProcessor(unittest.TestCase):
             self.assertTrue(recovered.processor.instruments["ABC"].suspended)
             recovered.process_batch([event("new-resume", EventKind.RESUME, timestamp=2)])
             records = [json.loads(line) for line in journal.read_text().splitlines()]
-            self.assertEqual(records[1]["version"], 2)
+            self.assertEqual(records[1]["version"], 3)
             self.assertEqual(records[1]["record_index"], 2)
+            self.assertEqual(records[1]["previous_sha512"], PersistentEventProcessor._legacy_anchor(legacy))
             PersistentEventProcessor(journal)
 
     def test_replay_preserves_batch_ordering_and_suspension_semantics(self):
