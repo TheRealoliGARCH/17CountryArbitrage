@@ -69,7 +69,11 @@ A blocked or rejected event ID is consumed for idempotency. A retry after a stat
 
 ## Persistent event journal and recovery
 
-`src/market17/persistent.py` adds an optional local JSON Lines journal. `PersistentEventProcessor` writes each input batch as a versioned record, flushes it to disk, and calls `fsync` before applying the batch to the in-memory processor. On an ordinary processing exception, it truncates the appended record and re-raises; the underlying processor's batch rollback restores in-memory state. On construction, it replays journal batches in their original batch sequence, while each batch retains the event processor's canonical event-time ordering.
+`src/market17/persistent.py` adds an optional local JSON Lines journal. New records use schema version 2 and contain a monotonically increasing record index and a SHA-256 digest over the canonical JSON representation of the record (excluding the digest field itself). Recovery verifies the digest and expected index before replay. Legacy version-1 records remain readable; subsequent appended records use version 2. The digest detects accidental or unsophisticated modification, but it is not an authenticity mechanism against an actor able to rewrite both payload and digest.
+
+The wrapper writes each input batch, flushes it, and calls `fsync` before applying the batch to the in-memory processor. On an ordinary processing exception, it truncates the appended record and re-raises; the underlying processor's batch rollback restores in-memory state. On construction, it validates the complete journal before replaying into a private processor copy. If any record fails validation or replay, the supplied processor is left unchanged rather than partially recovered.
+
+Recovery fails closed on malformed records, digest mismatches, unexpected record indices, unsupported versions, and incomplete trailing lines. It does not silently discard or truncate a partial tail; operators must preserve the journal and decide how to investigate or repair it. The index detects missing/reordered version-2 records relative to the sequence observed during recovery, but a digest chain or external trusted checkpoint would be needed for stronger tamper-evidence.
 
 Example:
 
@@ -88,7 +92,7 @@ recovered = PersistentEventProcessor("data/market-events.jsonl")
 assert recovered.processor.invariants_hold()
 ```
 
-Journal recovery fails closed on malformed or unsupported records instead of silently skipping them. The journal is local, append-only JSONL; it has no inter-process locking, log rotation, checksums, replicated storage, schema migration framework, or protection against every possible crash/filesystem failure. The wrapper assumes a fresh processor when replaying an existing journal. Do not share one journal between concurrent writers. This is a recovery scaffold, not a durable distributed transaction protocol.
+The journal is local JSONL; it has no inter-process locking, log rotation, replicated storage, schema migration framework, or general crash/filesystem guarantee. The wrapper assumes a fresh processor when replaying an existing journal. Do not share one journal between concurrent writers. This is a recovery scaffold, not a durable distributed transaction protocol.
 
 ## Safety and reachability checks
 
@@ -104,10 +108,10 @@ The exhaustive unit test enumerates all `2**4 = 16` Boolean combinations and ver
 ```text
 src/market17/model.py             State, transition, and guard definitions
 src/market17/event_processor.py   Deterministic in-memory event processor
-src/market17/persistent.py        Local JSONL journal and deterministic replay
+src/market17/persistent.py        Local JSONL journal, integrity checks, and replay
 tests/test_model.py               Architecture and core safety guard tests
 tests/test_event_processor.py     Ordering, recovery, and reachability tests
-tests/test_persistent.py          Persistence, replay, and failure-path tests
+tests/test_persistent.py          Persistence, integrity, and failure-path tests
 tests/test_state_explorer.py      Bounded explorer and guard tests
 ```
 
@@ -123,7 +127,7 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 
 ## Scope and limitations
 
-The event processor does not connect to live market infrastructure. The local journal provides replay after ordinary process restarts when its records remain intact, but does not provide distributed consensus, concurrent-writer safety, replicated durability, or a regulatory-grade audit trail. The in-memory batch rollback cannot protect against process termination, machine failure, external side effects, or concurrent writers. Journal recovery re-executes the recorded event batches under the current implementation, so behavior changes across software versions require explicit compatibility and migration controls.
+The event processor does not connect to live market infrastructure. The local journal provides replay when records remain intact and valid, but does not provide distributed consensus, concurrent-writer safety, replicated durability, or a regulatory-grade audit trail. The in-memory batch rollback cannot protect against process termination, machine failure, external side effects, or concurrent writers. Journal recovery re-executes the recorded event batches under the current implementation, so behavior changes across software versions require explicit compatibility and migration controls. SHA-256 record digests are corruption checks, not a substitute for a keyed signature, trusted checkpoint, or tamper-proof storage.
 
 The subsystem adjacency table is an initial structural model. Every transition should have a documented event, guard, side effect, audit record, and failure path before use in a simulation or operational system.
 
