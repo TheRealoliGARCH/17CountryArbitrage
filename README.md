@@ -81,7 +81,7 @@ The exhaustive unit test enumerates all (2^4=16) Boolean combinations and verifi
 src/market17/model.py             State, transition, and guard definitions
 src/market17/event_processor.py   Deterministic in-memory event processor
 tests/test_model.py               Architecture and core safety guard tests
-tests/test_event_processor.py     Ordering, recovery, and reachability tests
+tests/test_event_processor.py     Ordering, recovery, and reachability tests\ntests/test_state_explorer.py      Bounded explorer and guard tests
 ```
 
 ## Run tests
