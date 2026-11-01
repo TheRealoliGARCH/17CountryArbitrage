@@ -81,7 +81,7 @@ class PersistentEventProcessor:
         hash_chain_started = False
         with self.path.open("rb") as stream:
             for line_number, raw_line in enumerate(stream, start=1):
-                if not raw_line.endswith(b"\\n"):
+                if not raw_line.endswith(b"\n"):
                     raise ValueError(
                         f"incomplete event journal record on line {line_number}"
                     )
@@ -166,7 +166,7 @@ class PersistentEventProcessor:
             "events": [self._event_to_dict(event) for event in batch],
         }
         payload["sha512"] = self._digest(payload)
-        encoded = self._canonical_bytes(payload) + b"\\n"
+        encoded = self._canonical_bytes(payload) + b"\n"
         with self.path.open("a+b") as stream:
             stream.seek(0, os.SEEK_END)
             start = stream.tell()
