@@ -7,6 +7,7 @@ This is a local research store, not a distributed or exchange-grade journal.
 from __future__ import annotations
 
 import copy
+import fcntl
 import hashlib
 import json
 import os
@@ -29,6 +30,7 @@ class PersistentEventProcessor:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.processor = processor if processor is not None else EventProcessor()
+        self._known_journal_digest = "0" * 128
         if recover and self.path.exists():
             self._recover()
 
@@ -135,15 +137,16 @@ class PersistentEventProcessor:
 
     def _recover(self) -> None:
         """Validate the entire journal, then replay atomically into processor state."""
-        parsed_batches, _ = self._read_validated_batches()
+        parsed_batches, final_digest = self._read_validated_batches()
         staged_processor = copy.deepcopy(self.processor)
         for events in parsed_batches:
             staged_processor.process_batch(events)
         self.processor.__dict__.clear()
         self.processor.__dict__.update(staged_processor.__dict__)
+        self._known_journal_digest = final_digest
 
     def process_batch(self, events: Iterable[Event]):
-        """Append a hash-chained record, then apply it; undo append on exceptions."""
+        """Append under an exclusive file lock; reject stale concurrent writers."""
         batch = list(events)
         if any(not event.event_id or not event.instrument_id for event in batch):
             raise ValueError("event_id and instrument_id must be non-empty")
@@ -151,34 +154,46 @@ class PersistentEventProcessor:
         if len(ids) != len(set(ids)):
             raise ValueError("duplicate event_id within batch")
 
-        if self.path.exists() and self.path.stat().st_size:
-            _, previous_digest = self._read_validated_batches()
-            with self.path.open("rb") as stream:
-                record_index = sum(1 for _ in stream) + 1
-        else:
-            previous_digest = "0" * 128
-            record_index = 1
-
-        payload = {
-            "version": 3,
-            "record_index": record_index,
-            "previous_sha512": previous_digest,
-            "events": [self._event_to_dict(event) for event in batch],
-        }
-        payload["sha512"] = self._digest(payload)
-        encoded = self._canonical_bytes(payload) + b"\n"
+        # Advisory locking serializes cooperating writers on POSIX systems.
+        # The head check prevents a second, already-open processor from appending
+        # against a stale in-memory state after another writer has committed.
         with self.path.open("a+b") as stream:
-            stream.seek(0, os.SEEK_END)
-            start = stream.tell()
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
             try:
-                stream.write(encoded)
-                stream.flush()
-                os.fsync(stream.fileno())
-                result = self.processor.process_batch(batch)
-            except Exception:
-                stream.seek(start)
-                stream.truncate()
-                stream.flush()
-                os.fsync(stream.fileno())
-                raise
-        return result
+                if self.path.stat().st_size:
+                    parsed_batches, current_digest = self._read_validated_batches()
+                    record_index = len(parsed_batches) + 1
+                else:
+                    current_digest = "0" * 128
+                    record_index = 1
+                if current_digest != self._known_journal_digest:
+                    raise RuntimeError(
+                        "journal changed since this processor was opened; "
+                        "reopen it to recover the latest state before writing"
+                    )
+
+                payload = {
+                    "version": 3,
+                    "record_index": record_index,
+                    "previous_sha512": current_digest,
+                    "events": [self._event_to_dict(event) for event in batch],
+                }
+                payload["sha512"] = self._digest(payload)
+                encoded = self._canonical_bytes(payload) + b"\\n"
+                stream.seek(0, os.SEEK_END)
+                start = stream.tell()
+                try:
+                    stream.write(encoded)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                    result = self.processor.process_batch(batch)
+                except Exception:
+                    stream.seek(start)
+                    stream.truncate()
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                    raise
+                self._known_journal_digest = payload["sha512"]
+                return result
+            finally:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
