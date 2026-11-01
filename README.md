@@ -92,7 +92,7 @@ recovered = PersistentEventProcessor("data/market-events.jsonl")
 assert recovered.processor.invariants_hold()
 ```
 
-The journal is local JSONL; it has no inter-process locking, log rotation, replicated storage, schema migration framework, or general crash/filesystem guarantee. The wrapper assumes a fresh processor when replaying an existing journal. Do not share one journal between concurrent writers. This is a recovery scaffold, not a durable distributed transaction protocol.
+The journal is local JSONL. On POSIX systems, writes acquire an advisory exclusive file lock and reject a writer whose in-memory journal head is stale; after another writer commits, reopen the processor to recover before writing again. This protects cooperating local processes from interleaved appends and stale-chain writes, but it is not a distributed lock and does not guarantee safety on filesystems that do not honor POSIX advisory locks. Log rotation, replicated storage, schema migration tooling, and general crash/filesystem guarantees are not provided. This is a recovery scaffold, not a durable distributed transaction protocol.
 
 ## Safety and reachability checks
 
@@ -127,7 +127,7 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 
 ## Scope and limitations
 
-The event processor does not connect to live market infrastructure. The local journal provides replay when records remain intact and valid, but does not provide distributed consensus, concurrent-writer safety, replicated durability, or a regulatory-grade audit trail. The in-memory batch rollback cannot protect against process termination, machine failure, external side effects, or concurrent writers. Journal recovery re-executes the recorded event batches under the current implementation, so behavior changes across software versions require explicit compatibility and migration controls. SHA-512 record digests and chaining provide tamper-evidence for the retained chain, not authenticity against a full-journal rewrite. A keyed signature, externally trusted checkpoint, or tamper-resistant storage is still required to establish authenticity or detect truncation of the final suffix.
+The event processor does not connect to live market infrastructure. The local journal provides replay when records remain intact and valid. POSIX advisory locking serializes cooperating local writers and rejects stale writer instances, but does not provide distributed consensus, replicated durability, or a regulatory-grade audit trail. The in-memory batch rollback cannot protect against process termination, machine failure, external side effects, or concurrent writers. Journal recovery re-executes the recorded event batches under the current implementation, so behavior changes across software versions require explicit compatibility and migration controls. SHA-512 record digests and chaining provide tamper-evidence for the retained chain, not authenticity against a full-journal rewrite. A keyed signature, externally trusted checkpoint, or tamper-resistant storage is still required to establish authenticity or detect truncation of the final suffix.
 
 The subsystem adjacency table is an initial structural model. Every transition should have a documented event, guard, side effect, audit record, and failure path before use in a simulation or operational system.
 
