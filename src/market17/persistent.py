@@ -179,7 +179,7 @@ class PersistentEventProcessor:
                     "events": [self._event_to_dict(event) for event in batch],
                 }
                 payload["sha512"] = self._digest(payload)
-                encoded = self._canonical_bytes(payload) + b"\\n"
+                encoded = self._canonical_bytes(payload) + b"\n"
                 stream.seek(0, os.SEEK_END)
                 start = stream.tell()
                 try:
