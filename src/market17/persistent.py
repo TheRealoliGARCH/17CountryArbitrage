@@ -1,8 +1,8 @@
 """JSONL-backed event batches with deterministic, integrity-checked replay.
 
+New records use SHA-512 digests, monotonic indices, and a hash chain.
+Legacy version-1 and version-2 records remain readable for compatibility.
 This is a local research store, not a distributed or exchange-grade journal.
-New records include a SHA-512 digest and monotonically increasing record index.
-Legacy version-1 records remain readable for backward compatibility.
 """
 from __future__ import annotations
 
@@ -64,17 +64,22 @@ class PersistentEventProcessor:
 
     @classmethod
     def _digest(cls, payload: dict) -> str:
-        """Hash the complete v2 record except its digest field."""
+        """Hash a v2/v3 record except its own digest field."""
         unsigned = {key: value for key, value in payload.items() if key != "sha512"}
         return hashlib.sha512(cls._canonical_bytes(unsigned)).hexdigest()
 
-    def _recover(self) -> None:
-        """Validate the entire journal, then replay atomically into processor state."""
+    @classmethod
+    def _legacy_anchor(cls, payload: dict) -> str:
+        """Derive a deterministic chain anchor for a v1 record without a digest."""
+        return hashlib.sha512(cls._canonical_bytes(payload)).hexdigest()
+
+    def _read_validated_batches(self):
+        """Validate all records and return (batches, final chain digest)."""
         parsed_batches = []
         expected_index = 1
+        previous_digest = "0" * 128
         with self.path.open("rb") as stream:
             for line_number, raw_line in enumerate(stream, start=1):
-                # Blank lines are not valid records; do not silently hide corruption.
                 if not raw_line.endswith(b"\n"):
                     raise ValueError(
                         f"incomplete event journal record on line {line_number}"
@@ -87,6 +92,7 @@ class PersistentEventProcessor:
                     if version == 1:
                         if not isinstance(payload.get("events"), list):
                             raise ValueError("missing events list")
+                        current_digest = self._legacy_anchor(payload)
                     elif version == 2:
                         if payload.get("record_index") != expected_index:
                             raise ValueError("unexpected record index")
@@ -95,6 +101,18 @@ class PersistentEventProcessor:
                         digest = payload.get("sha512")
                         if not isinstance(digest, str) or digest != self._digest(payload):
                             raise ValueError("journal digest mismatch")
+                        current_digest = digest
+                    elif version == 3:
+                        if payload.get("record_index") != expected_index:
+                            raise ValueError("unexpected record index")
+                        if not isinstance(payload.get("events"), list):
+                            raise ValueError("missing events list")
+                        if payload.get("previous_sha512") != previous_digest:
+                            raise ValueError("journal chain mismatch")
+                        digest = payload.get("sha512")
+                        if not isinstance(digest, str) or digest != self._digest(payload):
+                            raise ValueError("journal digest mismatch")
+                        current_digest = digest
                     else:
                         raise ValueError("unsupported record version")
                     events = [self._dict_to_event(item) for item in payload["events"]]
@@ -103,10 +121,13 @@ class PersistentEventProcessor:
                         f"invalid event journal record on line {line_number}: {exc}"
                     ) from exc
                 parsed_batches.append(events)
+                previous_digest = current_digest
                 expected_index += 1
+        return parsed_batches, previous_digest
 
-        # Replay against a private copy. A bad later batch must not leave the
-        # caller-supplied processor partially recovered.
+    def _recover(self) -> None:
+        """Validate the entire journal, then replay atomically into processor state."""
+        parsed_batches, _ = self._read_validated_batches()
         staged_processor = copy.deepcopy(self.processor)
         for events in parsed_batches:
             staged_processor.process_batch(events)
@@ -114,7 +135,7 @@ class PersistentEventProcessor:
         self.processor.__dict__.update(staged_processor.__dict__)
 
     def process_batch(self, events: Iterable[Event]):
-        """Append a checksummed record, then apply it; undo append on exceptions."""
+        """Append a hash-chained record, then apply it; undo append on exceptions."""
         batch = list(events)
         if any(not event.event_id or not event.instrument_id for event in batch):
             raise ValueError("event_id and instrument_id must be non-empty")
@@ -122,16 +143,18 @@ class PersistentEventProcessor:
         if len(ids) != len(set(ids)):
             raise ValueError("duplicate event_id within batch")
 
-        # The next index is based on existing complete records, including legacy v1.
-        record_index = 1
-        if self.path.exists():
+        if self.path.exists() and self.path.stat().st_size:
+            _, previous_digest = self._read_validated_batches()
             with self.path.open("rb") as stream:
-                for raw_line in stream:
-                    if raw_line.strip():
-                        record_index += 1
+                record_index = sum(1 for _ in stream) + 1
+        else:
+            previous_digest = "0" * 128
+            record_index = 1
+
         payload = {
-            "version": 2,
+            "version": 3,
             "record_index": record_index,
+            "previous_sha512": previous_digest,
             "events": [self._event_to_dict(event) for event in batch],
         }
         payload["sha512"] = self._digest(payload)
