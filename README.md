@@ -1,10 +1,18 @@
 # The 17-State Market
 
-This repository contains a formal and computational specification of the **17-State Market**, a hierarchical extended-state-machine model for market price formation, analysis, arbitrage, transaction processing, governance, and retrospective learning.
+**A research implementation of a hierarchical market state machine — from OHLC price formation to market intelligence, transaction processing, institutional governance, and model revision.**
 
-The reference implementation is a research scaffold. It does not connect to a broker, exchange, clearing house, or settlement system and must not be used as a production trading system.
+[![Unit tests](https://github.com/TheRealoliGARCH/17StateMarket/actions/workflows/unit-tests.yml/badge.svg?branch=main)](https://github.com/TheRealoliGARCH/17StateMarket/actions/workflows/unit-tests.yml)
 
-## The 17 named states
+> **Status:** Research scaffold. The automated unit-test workflow has passed on Python 3.10, 3.11, and 3.12. This is not a production trading, exchange, clearing, or settlement system.
+
+## Overview
+
+The 17-State Market organizes market behavior into five interacting subsystems. Its goal is to make transitions, event ordering, transaction dependencies, risk decisions, and retrospective model changes explicit and testable.
+
+The **17 named states are not a claim that a market has only 17 possible configurations**. They are the named components of a constrained state-machine model. Which combinations are valid depends on transition guards, transaction dependencies, instrument status, and other invariants.
+
+## The 17 states
 
 | Symbol | State | Subsystem |
 |---|---|---|
@@ -12,72 +20,89 @@ The reference implementation is a research scaffold. It does not connect to a br
 | H | High | Price Formation |
 | L | Low | Price Formation |
 | C | Close | Price Formation |
+| V | Data Validation | Market Intelligence |
 | I | Introspection | Market Intelligence |
 | R | Reflection | Market Intelligence |
 | A | Arbitrage | Market Intelligence |
-| S | Settlement | Transaction Operations |
-| D | Delisting | Institutional Governance |
-| T | Retrospection | Learning and Evaluation |
-| V | Data Validation | Market Intelligence |
-| K | Risk Assessment | Institutional Governance |
 | E | Order Execution | Transaction Operations |
 | Q | Clearing | Transaction Operations |
+| S | Settlement | Transaction Operations |
+| K | Risk Assessment | Institutional Governance |
+| D | Delisting | Institutional Governance |
 | U | Suspension | Institutional Governance |
 | J | Re-listing | Institutional Governance |
+| T | Retrospection | Learning and Evaluation |
 | M | Model Revision | Learning and Evaluation |
 
-The five subsystems contain 4, 4, 3, 4, and 2 named states, respectively. The 17 named states are not a claim that the global market can occupy only 17 configurations. The subsystem configuration space is constrained by guards, transaction dependencies, listing status, and other invariants.
+### Five subsystem layers
 
-## Architecture
+1. **Price Formation — O, H, L, C:** represents the open, high, low, and close values of a market interval.
+2. **Market Intelligence — V, I, R, A:** validates data, inspects model state, reflects on evidence, and evaluates potential arbitrage.
+3. **Transaction Operations — E, Q, S:** separates order execution, clearing, and settlement into distinct stages.
+4. **Institutional Governance — K, D, U, J:** represents risk assessment and the distinct actions of delisting, suspension, and re-listing.
+5. **Learning and Evaluation — T, M:** evaluates historical decisions and governs model revisions.
 
-- **Price Formation:** O, H, L, C.
-- **Market Intelligence:** V, I, R, A.
-- **Transaction Operations:** E, Q, S.
-- **Institutional Governance:** K, D, U, J.
-- **Learning and Evaluation:** T, M.
+The layers are logically interacting; a production-grade implementation would need an explicit concurrency model and jurisdiction-specific governance rules.
 
-The subsystems are logically concurrent. A real implementation must specify which combinations can coexist and how synchronized events are processed.
+## Design invariants and policies
 
-## Core design rules
+- **OHLC consistency:** low <= min(open, close), high >= max(open, close), and low <= high.
+- **Deterministic event order:** events are ordered by (timestamp, sequence, event_id).
+- **Explicit transaction progression:** the normal route is order submission → execution → clearing → settlement. Later stages cannot be skipped.
+- **Arbitrage is conditional:** a discrepancy alone does not authorize execution; data validity, net-profit thresholds, liquidity, and risk-policy checks matter.
+- **Risk signals are not automatic institutional actions:** a negative estimated equity risk premium does not by itself trigger delisting.
+- **Suspension is distinct from delisting:** suspension blocks ordinary new orders for the affected instrument without silently erasing outstanding obligations.
+- **Model changes are governed:** a revised model must pass the required tests and approval before activation.
+- **Historical decisions retain context:** retrospective evaluation should preserve the information set and model version used for each decision.
 
-1. A completed OHLC record must satisfy `low <= min(open, close)`, `high >= max(open, close)`, and `low <= high`.
-2. The adjacency relation defines structural transitions; guards decide whether transitions are enabled in a particular context.
-3. An arbitrage discrepancy does not itself justify execution. The reference guard checks data validity, net profit against a threshold, liquidity, and risk-policy approval.
-4. A negative estimated equity risk premium is a signal, not an automatic delisting command. Delisting requires a completed risk assessment, applicable criteria, and authorization in this proposed policy.
-5. For the normal modeled route, settlement requires successful clearing.
-6. An effective suspension blocks ordinary new orders for the affected instrument. It does not silently erase outstanding obligations.
-7. A model revision does not activate until testing and approval pass.
-8. Historical evaluation should preserve the information set and model version used for each prior decision.
+These are policies of this reference model, not universal statements of exchange rules. Real deployments would require applicable law, market rules, and institutional controls to be represented explicitly.
 
-These are design choices for this model, not universal descriptions of every exchange's legal or operational rules. The governance rules must be parameterized for the jurisdiction and market under study.
+## Implementation
 
-## Event processor and event-time policy
+### Deterministic event processor
 
-`src/market17/event_processor.py` provides an in-memory event processor with:
-- deterministic ordering by `(timestamp, sequence, event_id)`;
-- the same event-time ordering for suspension/resumption controls and ordinary events;
+The file **src/market17/event_processor.py** provides an in-memory processor with:
+
+- deterministic event-time ordering, including control events;
 - instrument-scoped suspension and listing checks;
-- transaction progression through order submission, execution, clearing, and settlement;
-- guards against skipping transaction stages;
+- guarded transaction progression;
 - duplicate event-ID handling and an append-only in-memory audit log;
-- in-memory batch rollback if an unexpected exception interrupts processing;
-- an invariant check that transaction flags form a reachable prefix of the normal route.
+- atomic rollback of in-memory state when batch processing raises an ordinary exception;
+- rejection of events that arrive earlier than the last accepted event for an instrument;
+- a reachability invariant for transaction-stage flags.
 
-The ordering policy is explicit: a suspension affects events at or after its position in the event-time ordering. A later suspension does not retroactively block an earlier order. The processor rejects an event that sorts before the last accepted event for that instrument as **late**, rather than rewinding prior state. This simple watermark policy is a reference assumption; production event-time processing needs a documented lateness window, correction/replay policy, and durable event log.
+The current late-event policy rejects an out-of-order event rather than rewinding state. A production event-time system would need a documented lateness window, correction/replay policy, and durable event history.
 
-A blocked or rejected event ID is consumed for idempotency. A retry after a state change must use a new event ID. This prevents a repeated delivery from changing the outcome of an already processed event silently.
+### Persistent journal and recovery
 
-## Persistent event journal and recovery
+The file **src/market17/persistent.py** provides an optional local JSON Lines (JSONL) event journal.
 
-`src/market17/persistent.py` adds an optional local JSON Lines journal. New records use schema version 3 and contain a monotonically increasing record index, a `previous_sha512` link to the preceding record, and a SHA-512 digest over the canonical JSON representation of the record (excluding its own digest field). Recovery verifies the digest, expected index, and chain link before replay. Legacy version-1 and version-2 records remain readable; new appends use version 3. Once a version-3 record starts the hash-chained format, later legacy-version records are rejected to prevent schema downgrade. Version-1 records, which have no digest, receive a deterministic SHA-512 anchor derived from their canonical contents so the chain can continue across legacy history. The chain detects edits, replacement, and removal/reordering of records within the chain, but it is not an authenticity mechanism against an actor able to rewrite the entire journal and recompute every digest.
+- New records use schema version 3, a monotonically increasing record index, a SHA-512 digest, and a previous_sha512 link.
+- Recovery validates record structure, digest, index, and chain continuity before replaying into a private processor.
+- Legacy version-1 and version-2 records can be read, but legacy records are rejected after version 3 hash chaining begins.
+- A failed validation or replay leaves the supplied processor unchanged.
+- Journal appends are flushed and synchronized with fsync before the corresponding in-memory batch is applied.
+- On POSIX systems, an advisory exclusive file lock serializes cooperating local writers, and stale processor instances are rejected.
 
-The wrapper writes each input batch, flushes it, and calls `fsync` before applying the batch to the in-memory processor. On an ordinary processing exception, it truncates the appended record and re-raises; the underlying processor's batch rollback restores in-memory state. On construction, it validates the complete journal before replaying into a private processor copy. If any record fails validation or replay, the supplied processor is left unchanged rather than partially recovered.
+**Integrity boundary:** the hash chain helps detect edits, replacement, or reordering within a retained chain. It does not authenticate a journal against an actor who can rewrite the whole file and recompute its hashes, and a missing final suffix cannot be proven absent without an external trusted checkpoint. POSIX advisory locks are neither distributed locks nor a guarantee for filesystems that do not honor them.
 
-Recovery fails closed on malformed records, digest mismatches, chain-link mismatches, unexpected record indices, unsupported versions, schema downgrades after version 3 begins, and incomplete trailing lines. It does not silently discard or truncate a partial tail; operators must preserve the journal and decide how to investigate or repair it. The hash chain makes internal edits, replacement, and removal/reordering detectable when subsequent records are retained. A truncated suffix cannot be proven missing without an external trusted checkpoint or separately retained chain head.
+### Bounded state-space check
 
-Example:
+The tests enumerate all 2^4 = 16 combinations of the four transaction-stage flags. Exactly five are reachable prefixes of the normal transaction route. This is a finite check of that invariant, not a proof of every possible configuration of the complete market model.
 
-```python
+## Quick start
+
+**Requirements:** Python 3.10 or later. The implementation and tests use the Python standard library.
+
+From the repository root, run the unit tests:
+
+~~~bash
+PYTHONPATH=src python -m unittest discover -s tests -v
+~~~
+
+Example of processing a batch and recovering it by replaying the same journal:
+
+~~~python
 from market17.event_processor import Event, EventKind
 from market17.persistent import PersistentEventProcessor
 
@@ -87,49 +112,45 @@ market.process_batch([
     Event("execute-1", 2, 1, "ABC", EventKind.EXECUTION_CONFIRMED, "tx-1"),
 ])
 
-# Reopening the same journal reconstructs state by replay:
 recovered = PersistentEventProcessor("data/market-events.jsonl")
 assert recovered.processor.invariants_hold()
-```
-
-The journal is local JSONL. On POSIX systems, writes acquire an advisory exclusive file lock and reject a writer whose in-memory journal head is stale; after another writer commits, reopen the processor to recover before writing again. This protects cooperating local processes from interleaved appends and stale-chain writes, but it is not a distributed lock and does not guarantee safety on filesystems that do not honor POSIX advisory locks. Log rotation, replicated storage, schema migration tooling, and general crash/filesystem guarantees are not provided. This is a recovery scaffold, not a durable distributed transaction protocol.
-
-## Safety and reachability checks
-
-The transaction flags are constrained by:
-- execution implies order submission;
-- clearing implies execution;
-- settlement implies clearing.
-
-The exhaustive unit test enumerates all `2**4 = 16` Boolean combinations and verifies that exactly five are reachable prefixes of the normal route: no stage completed, order submitted, executed, cleared, or settled. This is a finite invariant check over the four transaction flags, not a proof of all reachable states of the complete market model.
+~~~
 
 ## Repository layout
 
-```text
+~~~text
 src/market17/model.py             State, transition, and guard definitions
 src/market17/event_processor.py   Deterministic in-memory event processor
 src/market17/persistent.py        Local JSONL journal, integrity checks, and replay
-tests/test_model.py               Architecture and core safety guard tests
+tests/test_model.py               Architecture and core safety-guard tests
 tests/test_event_processor.py     Ordering, recovery, and reachability tests
 tests/test_persistent.py          Persistence, integrity, and failure-path tests
 tests/test_state_explorer.py      Bounded explorer and guard tests
-```
+~~~
 
-## Run tests
+## Verification and current limitations
 
-Python 3.10 or later is recommended. The implementation uses only the Python standard library.
+The repository's configured GitHub Actions unit-test workflow has passed on **Python 3.10, 3.11, and 3.12**. The latest full-suite run is available in [GitHub Actions](https://github.com/TheRealoliGARCH/17StateMarket/actions/runs/41279639971).
 
-From the repository root:
+Passing tests establish that the configured test cases pass; they do not establish correctness under every concurrency interleaving, every crash or filesystem failure, all market regimes, or production workloads.
 
-```bash
-PYTHONPATH=src python -m unittest discover -s tests -v
-```
+The current implementation does **not** provide:
 
-## Scope and limitations
+- connectivity to a live broker, exchange, clearing house, or settlement system;
+- distributed consensus or replicated durable storage;
+- a distributed writer lock;
+- a regulatory-grade or externally authenticated audit trail;
+- automatic safe migration across arbitrary software-version changes;
+- a comprehensive specification of every state combination and transition failure path.
 
-The event processor does not connect to live market infrastructure. The local journal provides replay when records remain intact and valid. POSIX advisory locking serializes cooperating local writers and rejects stale writer instances, but does not provide distributed consensus, replicated durability, or a regulatory-grade audit trail. The in-memory batch rollback cannot protect against process termination, machine failure, external side effects, or concurrent writers. Journal recovery re-executes the recorded event batches under the current implementation, so behavior changes across software versions require explicit compatibility and migration controls. SHA-512 record digests and chaining provide tamper-evidence for the retained chain, not authenticity against a full-journal rewrite. A keyed signature, externally trusted checkpoint, or tamper-resistant storage is still required to establish authenticity or detect truncation of the final suffix.
+The local journal's replay behavior depends on the implementation used to interpret recorded events. Compatibility and migration controls are required when behavior changes across software versions. Before operational use, each transition should specify its triggering event, guard, side effect, audit record, failure path, and recovery procedure.
 
-The subsystem adjacency table is an initial structural model. Every transition should have a documented event, guard, side effect, audit record, and failure path before use in a simulation or operational system.
+## Repository map
+
+- **Source:** [src/market17/](https://github.com/TheRealoliGARCH/17StateMarket/tree/main/src/market17)
+- **Tests:** [tests/](https://github.com/TheRealoliGARCH/17StateMarket/tree/main/tests)
+- **Workflow runs:** [GitHub Actions](https://github.com/TheRealoliGARCH/17StateMarket/actions)
+- **License:** see [LICENSE](LICENSE).
 
 ## License
 
