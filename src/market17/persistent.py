@@ -78,6 +78,7 @@ class PersistentEventProcessor:
         parsed_batches = []
         expected_index = 1
         previous_digest = "0" * 128
+        hash_chain_started = False
         with self.path.open("rb") as stream:
             for line_number, raw_line in enumerate(stream, start=1):
                 if not raw_line.endswith(b"\n"):
@@ -89,6 +90,12 @@ class PersistentEventProcessor:
                     if not isinstance(payload, dict):
                         raise ValueError("record must be an object")
                     version = payload.get("version")
+                    # bool is a subclass of int in Python, so require the exact
+                    # integer type to avoid accepting true/false as schema IDs.
+                    if type(version) is not int:
+                        raise ValueError("unsupported record version")
+                    if hash_chain_started and version != 3:
+                        raise ValueError("journal schema downgrade after version 3")
                     if version == 1:
                         if not isinstance(payload.get("events"), list):
                             raise ValueError("missing events list")
@@ -113,6 +120,7 @@ class PersistentEventProcessor:
                         if not isinstance(digest, str) or digest != self._digest(payload):
                             raise ValueError("journal digest mismatch")
                         current_digest = digest
+                        hash_chain_started = True
                     else:
                         raise ValueError("unsupported record version")
                     events = [self._dict_to_event(item) for item in payload["events"]]
