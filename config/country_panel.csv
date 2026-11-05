@@ -1,0 +1,18 @@
+iso2,country,currency_code,currency,observation_status
+AU,Australia,AUD,Australian dollar,panel_member
+AT,Austria,EUR,euro,panel_member
+CA,Canada,CAD,Canadian dollar,panel_member
+DK,Denmark,DKK,Danish krone,panel_member
+DE,Germany,EUR,euro,panel_member
+FR,France,EUR,euro,panel_member
+IN,India,INR,Indian rupee,panel_member
+LU,Luxembourg,EUR,euro,panel_member
+NL,Netherlands,EUR,euro,panel_member
+NZ,New Zealand,NZD,New Zealand dollar,panel_member
+NO,Norway,NOK,Norwegian krone,panel_member
+PK,Pakistan,PKR,Pakistani rupee,panel_member
+RU,Russia,RUB,Russian ruble,panel_member
+SG,Singapore,SGD,Singapore dollar,panel_member
+SE,Sweden,SEK,Swedish krona,panel_member
+CH,Switzerland,CHF,Swiss franc,panel_member
+US,United States,USD,United States dollar,panel_member
