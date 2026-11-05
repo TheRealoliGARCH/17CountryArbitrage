@@ -1,18 +1,92 @@
-# The 17-State Market
+# 17-Country Arbitrage
 
-**A research implementation of a hierarchical market state machine — from OHLC price formation to market intelligence, transaction processing, institutional governance, and model revision.**
+**A research framework for cross-country sovereign-bond relative value, monetary-rate relationships, and network-aware arbitrage across 17 national markets, supported by a 17-state market-processing architecture.**
 
-[![Unit tests](https://github.com/TheRealoliGARCH/17StateMarket/actions/workflows/unit-tests.yml/badge.svg?branch=main)](https://github.com/TheRealoliGARCH/17StateMarket/actions/workflows/unit-tests.yml)
+[![Unit tests](https://github.com/TheRealoliGARCH/17CountryArbitrage/actions/workflows/unit-tests.yml/badge.svg?branch=main)](https://github.com/TheRealoliGARCH/17CountryArbitrage/actions/workflows/unit-tests.yml)
 
-> **Status:** Research scaffold. The automated unit-test workflow has passed on Python 3.10, 3.11, and 3.12. This is not a production trading, exchange, clearing, or settlement system.
+> **Status:** Research implementation. The repository currently contains a deterministic 17-state market event-processing scaffold. The 17-country relative-value and arbitrage framework is the research objective; it must not be mistaken for a live, validated, or production trading system. The automated unit-test workflow has previously passed on Python 3.10, 3.11, and 3.12.
 
-## Overview
+## Research objective
 
-The 17-State Market organizes market behavior into five interacting subsystems. Its goal is to make transitions, event ordering, transaction dependencies, risk decisions, and retrospective model changes explicit and testable.
+The project studies relative monetary and sovereign-bond conditions across a 17-country panel. Its objective is to identify, measure, validate, and—only where justified by executable prices and risk controls—act on cross-country relative-value opportunities.
 
-The **17 named states are not a claim that a market has only 17 possible configurations**. They are the named components of a constrained state-machine model. Which combinations are valid depends on transition guards, transaction dependencies, instrument status, and other invariants.
+The country panel is:
 
-## The 17 states
+| Code | Country |
+|---|---|
+| AU | Australia |
+| AT | Austria |
+| CA | Canada |
+| DK | Denmark |
+| DE | Germany |
+| FR | France |
+| IN | India |
+| LU | Luxembourg |
+| NL | Netherlands |
+| NZ | New Zealand |
+| NO | Norway |
+| PK | Pakistan |
+| RU | Russia |
+| SG | Singapore |
+| SE | Sweden |
+| CH | Switzerland |
+| US | United States |
+
+The panel contains 17 national observations, 136 unique unordered country pairs, and 272 directed bilateral relationships. These counts describe the analytical network; they do not imply that every pair is investable, liquid, legally accessible, or directly arbitrageable.
+
+## Relative-rate research framework
+
+Let the observed sovereign yield and selected reference rate for country $i$ at time $t$ be denoted by $r_{i,t}$ and $r_{if,t}$. A candidate common reference is:
+
+\[
+r_f^*(t)=\min_{1\leq i\leq 17} r_{if,t}.
+\]
+
+The corresponding excess-rate measure is:
+
+\[
+e_{i,t}=r_{i,t}-r_f^*(t).
+\]
+
+A proposed bilateral relative-rate statistic is:
+
+\[
+\rho_{ij,t}=\frac{e_{i,t}}{e_{j,t}},
+\qquad i\ne j,
+\]
+
+where it is numerically and economically well-defined. The diagonal of the relative-rate matrix is one, and reciprocal symmetry holds where both ratios are defined.
+
+These quantities are **research statistics, not executable arbitrage prices**. Ratios can be unstable when a denominator is close to zero and can be difficult to interpret when excess rates are negative. The minimum national reference rate is not automatically a common investable risk-free numeraire.
+
+Cross-country comparisons must account for, as applicable:
+
+- currency denomination and FX-forward or swap hedging;
+- cross-currency basis, collateral, and funding costs;
+- sovereign credit and default risk;
+- duration, convexity, curve shape, carry, and roll-down;
+- bid-ask spreads, market depth, market impact, and turnover;
+- taxes, capital controls, market access, sanctions, settlement, and legal constraints;
+- instrument-specific liquidity and trading calendars.
+
+The empirical programme should therefore distinguish raw yield comparisons, currency-hedged total-return comparisons, and genuinely executable net-of-cost opportunities. A yield differential alone is not proof of arbitrage.
+
+## Analytical network
+
+The 17-country panel induces a complete *analytical* graph with 17 vertices and 136 unique undirected edges. Each edge can carry country-pair features such as:
+
+- yield and reference-rate differentials;
+- relative-rate and spread measures;
+- FX-hedged return differentials;
+- liquidity and transaction-cost estimates;
+- duration- and risk-adjusted relative-value signals;
+- estimated uncertainty and regime classifications.
+
+A network no-arbitrage layer can test whether observed executable bid and ask prices admit profitable cycles after transaction costs. The graph representation is a modelling device; actual market connectivity, instrument availability, and trading permissions must be established pair by pair.
+
+## The 17-state market architecture
+
+The 17-State Market is the processing and governance scaffold intended to support the research workflow. Its 17 named states are organized into five interacting subsystems:
 
 | Symbol | State | Subsystem |
 |---|---|---|
@@ -36,28 +110,29 @@ The **17 named states are not a claim that a market has only 17 possible configu
 
 ### Five subsystem layers
 
-1. **Price Formation — O, H, L, C:** represents the open, high, low, and close values of a market interval.
-2. **Market Intelligence — V, I, R, A:** validates data, inspects model state, reflects on evidence, and evaluates potential arbitrage.
-3. **Transaction Operations — E, Q, S:** separates order execution, clearing, and settlement into distinct stages.
-4. **Institutional Governance — K, D, U, J:** represents risk assessment and the distinct actions of delisting, suspension, and re-listing.
+1. **Price Formation — O, H, L, C:** represents open, high, low, and close values of a market interval.
+2. **Market Intelligence — V, I, R, A:** validates data, inspects model state, evaluates evidence, and assesses candidate arbitrage.
+3. **Transaction Operations — E, Q, S:** separates execution, clearing, and settlement.
+4. **Institutional Governance — K, D, U, J:** represents risk assessment and distinct delisting, suspension, and re-listing actions.
 5. **Learning and Evaluation — T, M:** evaluates historical decisions and governs model revisions.
 
-The layers are logically interacting; a production-grade implementation would need an explicit concurrency model and jurisdiction-specific governance rules.
+The 17 named states are not a claim that a market has only 17 possible configurations. They are components of a constrained state-machine model. The country dimension and the state-machine dimension are distinct: **17 countries do not correspond one-to-one with the 17 operational states.**
 
-## Design invariants and policies
+## Research and system design principles
 
-- **OHLC consistency:** low <= min(open, close), high >= max(open, close), and low <= high.
-- **Deterministic event order:** events are ordered by (timestamp, sequence, event_id).
-- **Explicit transaction progression:** the normal route is order submission → execution → clearing → settlement. Later stages cannot be skipped.
-- **Arbitrage is conditional:** a discrepancy alone does not authorize execution; data validity, net-profit thresholds, liquidity, and risk-policy checks matter.
-- **Risk signals are not automatic institutional actions:** a negative estimated equity risk premium does not by itself trigger delisting.
-- **Suspension is distinct from delisting:** suspension blocks ordinary new orders for the affected instrument without silently erasing outstanding obligations.
-- **Model changes are governed:** a revised model must pass the required tests and approval before activation.
-- **Historical decisions retain context:** retrospective evaluation should preserve the information set and model version used for each decision.
+- **Signal before execution:** a statistical discrepancy is a candidate signal, not an instruction to trade.
+- **Net economics:** assess expected returns after spreads, fees, financing, hedging, market impact, and other applicable costs.
+- **Comparable exposures:** control for currency, duration, convexity, credit, liquidity, and instrument characteristics.
+- **Data validity:** preserve timestamps, source provenance, revisions, missingness, and market-calendar conventions.
+- **No look-ahead:** construct every feature using only information available at the decision timestamp.
+- **Out-of-sample evaluation:** use chronological validation, walk-forward testing, and regime-aware performance analysis.
+- **Risk governance:** impose position, leverage, liquidity, concentration, drawdown, and country/jurisdiction limits.
+- **Auditable decisions:** retain the data snapshot, signal, model version, risk decision, order intent, and execution outcome.
+- **Model-change control:** a revised model must pass its required tests and approval before activation.
 
-These are policies of this reference model, not universal statements of exchange rules. Real deployments would require applicable law, market rules, and institutional controls to be represented explicitly.
+## Current implementation
 
-## Implementation
+The current codebase implements a market state model and event-processing scaffold. It does not yet implement the complete 17-country data pipeline, a validated relative-value strategy, broker connectivity, or live order execution.
 
 ### Deterministic event processor
 
@@ -92,7 +167,7 @@ The tests enumerate all 2^4 = 16 combinations of the four transaction-stage flag
 
 ## Quick start
 
-**Requirements:** Python 3.10 or later. The implementation and tests use the Python standard library.
+**Requirements:** Python 3.10 or later. The current implementation and tests use the Python standard library.
 
 From the repository root, run the unit tests:
 
@@ -128,28 +203,39 @@ tests/test_persistent.py          Persistence, integrity, and failure-path tests
 tests/test_state_explorer.py      Bounded explorer and guard tests
 ~~~
 
-## Verification and current limitations
+## Planned research stages
 
-The repository's configured GitHub Actions unit-test workflow has passed on **Python 3.10, 3.11, and 3.12**. The latest full-suite run is available in [GitHub Actions](https://github.com/TheRealoliGARCH/17StateMarket/actions/runs/41279639971).
+1. **Panel and data specification:** define instruments, maturities, observation frequencies, data provenance, calendars, and missing-data policy for all 17 countries.
+2. **Comparable-return construction:** estimate currency-specific curves and construct duration-aware, FX-hedged total-return measures where the required data are available.
+3. **Relative-value estimation:** test bilateral spreads, relative-rate statistics, cointegration or error-correction specifications, and regime-dependent deviations.
+4. **Network analysis:** evaluate pairwise and cycle-level consistency using executable bid/ask prices and transaction-cost bounds.
+5. **Signal validation:** test predictive content, stability, uncertainty, and incremental value against simple benchmarks using strictly chronological out-of-sample evaluation.
+6. **Portfolio and execution research:** model sizing, hedging, liquidity, market impact, execution scheduling, and portfolio-level risk before any live deployment is considered.
+7. **17-state integration:** connect validated research outputs to explicit data-validation, risk, execution, clearing, settlement, retrospective, and model-governance transitions.
 
-Passing tests establish that the configured test cases pass; they do not establish correctness under every concurrency interleaving, every crash or filesystem failure, all market regimes, or production workloads.
+Each stage should have reproducible data contracts, unit tests, documented assumptions, and empirical acceptance criteria.
+
+## Verification and limitations
+
+The repository's configured GitHub Actions unit-test workflow has previously passed on **Python 3.10, 3.11, and 3.12**. Passing tests establish that the configured test cases pass; they do not establish profitability, predictive validity, correctness under every concurrency interleaving, every crash or filesystem failure, all market regimes, or production readiness.
 
 The current implementation does **not** provide:
 
+- a live 17-country market-data acquisition pipeline;
+- a validated cross-country trading signal or profitable strategy;
 - connectivity to a live broker, exchange, clearing house, or settlement system;
 - distributed consensus or replicated durable storage;
 - a distributed writer lock;
 - a regulatory-grade or externally authenticated audit trail;
-- automatic safe migration across arbitrary software-version changes;
 - a comprehensive specification of every state combination and transition failure path.
 
-The local journal's replay behavior depends on the implementation used to interpret recorded events. Compatibility and migration controls are required when behavior changes across software versions. Before operational use, each transition should specify its triggering event, guard, side effect, audit record, failure path, and recovery procedure.
+Real deployments would require applicable law, market rules, instrument eligibility, institutional controls, and jurisdiction-specific operational requirements to be represented explicitly. Research results should not be interpreted as investment advice or as evidence of risk-free profit.
 
 ## Repository map
 
-- **Source:** [src/market17/](https://github.com/TheRealoliGARCH/17StateMarket/tree/main/src/market17)
-- **Tests:** [tests/](https://github.com/TheRealoliGARCH/17StateMarket/tree/main/tests)
-- **Workflow runs:** [GitHub Actions](https://github.com/TheRealoliGARCH/17StateMarket/actions)
+- **Source:** [src/market17/](https://github.com/TheRealoliGARCH/17CountryArbitrage/tree/main/src/market17)
+- **Tests:** [tests/](https://github.com/TheRealoliGARCH/17CountryArbitrage/tree/main/tests)
+- **Workflow runs:** [GitHub Actions](https://github.com/TheRealoliGARCH/17CountryArbitrage/actions)
 - **License:** see [LICENSE](LICENSE).
 
 ## License
