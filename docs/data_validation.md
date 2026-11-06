@@ -20,6 +20,10 @@ The implementation is in `src/countrydata/`:
 5. Quarantine is an in-memory validation result in this stage. Durable quarantine storage and raw-payload/checksum retention are future ingestion-layer work.
 6. This stage does not impose instrument-specific value bounds, validate ISO codes against an external standards registry, or prove that a source series actually describes the declared instrument.
 
+## Durable audit store
+
+`AuditStore` creates an append-only SQLite schema with ingestion-run, raw-record, and validation-result tables. A batch is committed atomically; raw and validation rows have update/delete-blocking triggers. This is an application-level safeguard, not tamper-proof storage. Checksums cover canonical JSON, not original transport bytes. See the detailed limits in this document's companion implementation and tests.
+
 ## Run tests
 
 From the repository root:
