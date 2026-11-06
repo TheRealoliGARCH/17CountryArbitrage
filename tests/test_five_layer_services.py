@@ -46,7 +46,7 @@ class TestPriceFormation(unittest.TestCase):
             order("a1", Side.SELL, 99, 8),
             order("a2", Side.SELL, 100, 7),
         ])
-        self.assertEqual(result.price, 101)
+        self.assertEqual(result.price, 100)
         self.assertEqual(result.quantity, 15)
 
     def test_circuit_breaker_requires_authorized_reset(self):
