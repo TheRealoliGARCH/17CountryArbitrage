@@ -61,18 +61,16 @@ def validate_observation(
 def validate_batch(
     observations: Iterable[Observation], panel: dict[str, Country]
 ) -> tuple[list[ValidationResult], list[ValidationResult]]:
-    """Validate records and quarantine duplicate keys deterministically.
+    """Validate records and quarantine repeated raw-source keys deterministically.
 
-    Exact repeated records and conflicting records are both quarantined; conflicting
-    source records should be retained upstream and reconciled by an explicit policy.
+    Different source records sharing a project-level identity are retained. A
+    source-priority or reconciliation policy belongs in a later normalization step.
     """
     records = list(observations)
     results = [validate_observation(item, panel) for item in records]
     raw_groups: dict[tuple[str, ...], list[int]] = {}
-    project_groups: dict[tuple[str, ...], list[int]] = {}
     for index, item in enumerate(records):
         raw_groups.setdefault(item.raw_key(), []).append(index)
-        project_groups.setdefault(item.project_key(), []).append(index)
 
     duplicate_indices: dict[int, ValidationIssue] = {}
     for key, indices in raw_groups.items():
@@ -81,14 +79,6 @@ def validate_batch(
                 duplicate_indices[index] = ValidationIssue(
                     "duplicate_raw_key", f"Repeated raw-record key: {key!r}"
                 )
-    for key, indices in project_groups.items():
-        if len(indices) > 1:
-            for index in indices:
-                duplicate_indices[index] = ValidationIssue(
-                    "duplicate_project_key",
-                    f"Multiple records share project observation identity: {key!r}",
-                )
-
     accepted: list[ValidationResult] = []
     quarantined: list[ValidationResult] = []
     for index, result in enumerate(results):
