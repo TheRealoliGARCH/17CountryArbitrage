@@ -53,6 +53,12 @@ def validate_observation(
         issues.append(ValidationIssue("invalid_quality_status", "Unknown quality status", "quality_status"))
     if observation.quality_status == "rejected":
         issues.append(ValidationIssue("source_rejected", "Source record is explicitly marked rejected", "quality_status"))
+    elif observation.quality_status != "valid":
+        issues.append(ValidationIssue(
+            "non_valid_quality_status",
+            "Non-valid quality states require a separate review or data-repair policy",
+            "quality_status",
+        ))
     if observation.availability_time > observation.retrieved_at:
         issues.append(ValidationIssue("future_availability", "Availability time is later than retrieval time", "availability_time"))
     return ValidationResult(observation, tuple(issues))
