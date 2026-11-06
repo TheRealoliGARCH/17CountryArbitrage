@@ -1,14 +1,14 @@
-# 17-Country Arbitrage
+# 25-Country Arbitrage
 
-**A research framework for cross-country sovereign-bond relative value, monetary-rate relationships, and network-aware arbitrage across 17 national markets, supported by a 17-state market-processing architecture.**
+**A research framework for cross-country sovereign-bond relative value, monetary-rate relationships, and network-aware arbitrage across 25 national markets, supported by a 17-state market-processing architecture.**
 
-[![Unit tests](https://github.com/TheRealoliGARCH/17CountryArbitrage/actions/workflows/unit-tests.yml/badge.svg?branch=main)](https://github.com/TheRealoliGARCH/17CountryArbitrage/actions/workflows/unit-tests.yml)
+[![Unit tests](https://github.com/TheRealoliGARCH/25CountryArbitrage/actions/workflows/unit-tests.yml/badge.svg?branch=main)](https://github.com/TheRealoliGARCH/25CountryArbitrage/actions/workflows/unit-tests.yml)
 
-> **Status:** Research implementation. The repository currently contains a deterministic 17-state market event-processing scaffold. The 17-country relative-value and arbitrage framework is the research objective; it must not be mistaken for a live, validated, or production trading system. The automated unit-test workflow has previously passed on Python 3.10, 3.11, and 3.12.
+> **Status:** Research implementation. The repository currently contains a deterministic 17-state market event-processing scaffold. The 25-country relative-value and arbitrage framework is the research objective; it must not be mistaken for a live, validated, or production trading system. The automated unit-test workflow has previously passed on Python 3.10, 3.11, and 3.12.
 
 ## Research objective
 
-The project studies relative monetary and sovereign-bond conditions across a 17-country panel. Its objective is to identify, measure, validate, and—only where justified by executable prices and risk controls—act on cross-country relative-value opportunities.
+The project studies relative monetary and sovereign-bond conditions across a 25-country panel. Its objective is to identify, measure, validate, and—only where justified by executable prices and risk controls—act on cross-country relative-value opportunities.
 
 The country panel is:
 
@@ -31,8 +31,16 @@ The country panel is:
 | SE | Sweden |
 | CH | Switzerland |
 | US | United States |
+| GB | United Kingdom |
+| CN | China |
+| KP | North Korea (DPRK) |
+| IL | Israel |
+| BR | Brazil |
+| JP | Japan |
+| KR | South Korea |
+| MX | Mexico |
 
-The panel contains 17 national observations, 136 unique unordered country pairs, and 272 directed bilateral relationships. These counts describe the analytical network; they do not imply that every pair is investable, liquid, legally accessible, or directly arbitrageable.
+The panel contains 25 national observations, 300 unique unordered country pairs, 600 directed bilateral relationships, and 2,300 unique country triads. These counts describe the analytical network; they do not imply that every pair is investable, liquid, legally accessible, or directly arbitrageable.
 
 ## Relative-rate research framework
 
@@ -73,7 +81,7 @@ The empirical programme should therefore distinguish raw yield comparisons, curr
 
 ## Analytical network
 
-The 17-country panel induces a complete *analytical* graph with 17 vertices and 136 unique undirected edges. Each edge can carry country-pair features such as:
+The 25-country panel induces a complete *analytical* graph with 25 vertices and 300 unique undirected edges. Each edge can carry country-pair features such as:
 
 - yield and reference-rate differentials;
 - relative-rate and spread measures;
@@ -116,7 +124,7 @@ The 17-State Market is the processing and governance scaffold intended to suppor
 4. **Institutional Governance — K, D, U, J:** represents risk assessment and distinct delisting, suspension, and re-listing actions.
 5. **Learning and Evaluation — T, M:** evaluates historical decisions and governs model revisions.
 
-The 17 named states are not a claim that a market has only 17 possible configurations. They are components of a constrained state-machine model. The country dimension and the state-machine dimension are distinct: **17 countries do not correspond one-to-one with the 17 operational states.**
+The 17 named states are not a claim that a market has only 17 possible configurations. They are components of a constrained state-machine model. The country dimension and the state-machine dimension are distinct: **25 countries do not correspond one-to-one with the 17 operational states.**
 
 ## Research and system design principles
 
@@ -132,7 +140,7 @@ The 17 named states are not a claim that a market has only 17 possible configura
 
 ## Current implementation
 
-The current codebase implements a market state model and event-processing scaffold. It does not yet implement the complete 17-country data pipeline, a validated relative-value strategy, broker connectivity, or live order execution.
+The current codebase implements a market state model and event-processing scaffold. It does not yet implement the complete 25-country data pipeline, a validated relative-value strategy, broker connectivity, or live order execution.
 
 ### Deterministic event processor
 
@@ -205,7 +213,7 @@ tests/test_state_explorer.py      Bounded explorer and guard tests
 
 ## Planned research stages
 
-1. **Panel and data specification:** define instruments, maturities, observation frequencies, data provenance, calendars, and missing-data policy for all 17 countries.
+1. **Panel and data specification:** define instruments, maturities, observation frequencies, data provenance, calendars, and missing-data policy for all 25 countries.
 2. **Comparable-return construction:** estimate currency-specific curves and construct duration-aware, FX-hedged total-return measures where the required data are available.
 3. **Relative-value estimation:** test bilateral spreads, relative-rate statistics, cointegration or error-correction specifications, and regime-dependent deviations.
 4. **Network analysis:** evaluate pairwise and cycle-level consistency using executable bid/ask prices and transaction-cost bounds.
@@ -233,9 +241,9 @@ Real deployments would require applicable law, market rules, instrument eligibil
 
 ## Repository map
 
-- **Source:** [src/market17/](https://github.com/TheRealoliGARCH/17CountryArbitrage/tree/main/src/market17)
-- **Tests:** [tests/](https://github.com/TheRealoliGARCH/17CountryArbitrage/tree/main/tests)
-- **Workflow runs:** [GitHub Actions](https://github.com/TheRealoliGARCH/17CountryArbitrage/actions)
+- **Source:** [src/market17/](https://github.com/TheRealoliGARCH/25CountryArbitrage/tree/main/src/market17)
+- **Tests:** [tests/](https://github.com/TheRealoliGARCH/25CountryArbitrage/tree/main/tests)
+- **Workflow runs:** [GitHub Actions](https://github.com/TheRealoliGARCH/25CountryArbitrage/actions)
 - **License:** see [LICENSE](LICENSE).
 
 ## License
