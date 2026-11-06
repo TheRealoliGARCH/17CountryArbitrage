@@ -28,8 +28,7 @@ CREATE TABLE IF NOT EXISTS raw_records (
     source_vintage TEXT NOT NULL,
     retrieved_at TEXT NOT NULL,
     payload_json TEXT NOT NULL,
-    payload_sha256 TEXT NOT NULL,
-    UNIQUE(run_id, payload_sha256)
+    payload_sha256 TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS validation_records (
     validation_id INTEGER PRIMARY KEY AUTOINCREMENT,
