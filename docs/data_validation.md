@@ -16,7 +16,7 @@ The implementation is in `src/countrydata/`:
 1. Negative yields are permitted. No universal positive-yield constraint is imposed.
 2. A currency code is syntax-checked but is not forced to equal the country's national currency. Foreign-currency issuance can exist; instrument metadata must determine denomination.
 3. Different sources sharing a project-level observation identity are retained. They are not silently collapsed or arbitrarily quarantined. Source priority and reconciliation are later normalization policies.
-4. A record explicitly marked `rejected` is quarantined. `missing`, `stale`, `provisional`, and `revised` remain distinct statuses and are not silently converted to valid observations.
+4. Only `valid` records pass the initial acceptance gate. `missing`, `stale`, `provisional`, `revised`, and `rejected` remain distinct statuses and are quarantined for a later review or repair policy; they are never silently relabelled as valid.
 5. Quarantine is an in-memory validation result in this stage. Durable quarantine storage and raw-payload/checksum retention are future ingestion-layer work.
 6. This stage does not impose instrument-specific value bounds, validate ISO codes against an external standards registry, or prove that a source series actually describes the declared instrument.
 
