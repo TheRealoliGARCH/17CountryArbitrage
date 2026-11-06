@@ -112,13 +112,12 @@ class TestBatchAndDuplicates(unittest.TestCase):
         self.assertEqual(len(quarantined), 2)
         self.assertIn("duplicate_raw_key", {issue.code for result in quarantined for issue in result.issues})
 
-    def test_cross_source_conflict_on_project_key_is_quarantined(self):
+    def test_different_sources_with_same_project_identity_are_retained(self):
         first = sample()
         second = sample(source_name="Another Publisher", source_series_id="SERIES-OTHER", value=0.1)
         accepted, quarantined = validate_batch([first, second], load_country_panel(PANEL_PATH))
-        self.assertEqual(accepted, [])
-        self.assertEqual(len(quarantined), 2)
-        self.assertIn("duplicate_project_key", {issue.code for result in quarantined for issue in result.issues})
+        self.assertEqual(len(accepted), 2)
+        self.assertEqual(quarantined, [])
 
     def test_different_source_vintages_are_not_duplicates(self):
         accepted, quarantined = validate_batch(
