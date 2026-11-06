@@ -95,9 +95,12 @@ class TestObservationSchema(unittest.TestCase):
         result = validate_observation(item, load_country_panel(PANEL_PATH))
         self.assertIn("future_availability", {issue.code for issue in result.issues})
 
-    def test_explicitly_rejected_quality_status_is_quarantined(self):
-        result = validate_observation(sample(quality_status="rejected"), load_country_panel(PANEL_PATH))
-        self.assertFalse(result.accepted)
+    def test_non_valid_quality_statuses_are_quarantined_without_relabeling(self):
+        for status in ("missing", "stale", "provisional", "revised", "rejected"):
+            with self.subTest(status=status):
+                result = validate_observation(sample(quality_status=status), load_country_panel(PANEL_PATH))
+                self.assertFalse(result.accepted)
+                self.assertEqual(result.observation.quality_status, status)
 
 
 class TestBatchAndDuplicates(unittest.TestCase):
